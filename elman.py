@@ -81,8 +81,8 @@ class model(object):
 def preprocess(x, y):
     x, y = filter(lambda z: z != 0, x), filter(lambda z: z != 0, y)
     sentence_enc = np.array(x).astype('int32')
-    sentence_dec = np.array([-1] + y[:-1]).astype('int32')
-    target = np.array(y[1:] + [-1]).astype('int32')
+    sentence_dec = np.array([0] + y[:-1]).astype('int32') - 1 # trick with 1-based indexing
+    target = np.array(y[0] + [-1]).astype('int32') - 1 # same
     return sentence_enc, sentence_dec, target
 
 def main(nsamples=100,
@@ -95,8 +95,8 @@ def main(nsamples=100,
     DIGITS = 3
     MAXLEN = DIGITS + 1 + DIGITS
     chars = '0123456789+ '
-    n_classes = 20 #len('0123456789') + 1 # add <eos>
-    voc_size = 20 #len('0123456789+') + 1 # add <bos> for the decoder 
+    n_classes = len('0123456789') + 1 # add <eos>
+    voc_size = len('0123456789+') + 1 # add <bos> for the decoder 
 
     # generate the dataset
     ctable = CharacterTable(chars, MAXLEN)
