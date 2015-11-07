@@ -10,6 +10,7 @@ INVERT = False
 DIGITS = 3
 MAXLEN = DIGITS + 1 + DIGITS
 
+# Not needed (we will use indexes)
 class CharacterTable(object):
     """
     Given a set of characters:
@@ -22,6 +23,16 @@ class CharacterTable(object):
         self.char_indices = dict((c, i) for i, c in enumerate(self.chars))
         self.indices_char = dict((i, c) for i, c in enumerate(self.chars))
         self.maxlen = maxlen
+
+    def encode_index(self, C, maxlen=None):
+        maxlen = maxlen if maxlen else self.maxlen
+        X = np.zeros((maxlen), dtype='int32')
+        for i,c in enumerate(C):
+            X[i] = self.char_indices[c]
+        return X
+
+    def decode_index(self, X):
+        return ''.join(self.indices_char[x] for x in X)
 
     def encode(self, C, maxlen=None):
         maxlen = maxlen if maxlen else self.maxlen
@@ -38,7 +49,7 @@ class CharacterTable(object):
 chars = '0123456789+ '
 ctable = CharacterTable(chars, MAXLEN)
 
-def generate_train_data(training_size=50000):
+def generate_train_data(training_size=5000):
     questions = []
     expected = []
     seen = set()
@@ -65,12 +76,14 @@ def generate_train_data(training_size=50000):
         #print('Total addition questions:', len(questions))
 
     print('Vectorization...')
-    X = np.zeros((len(questions), MAXLEN, len(chars)), dtype=np.bool)
-    y = np.zeros((len(questions), DIGITS + 1, len(chars)), dtype=np.bool)
+    X = np.zeros((len(questions), MAXLEN), dtype='int32')
+    y = np.zeros((len(questions), DIGITS + 1), dtype='int32')
     for i, sentence in enumerate(questions):
-        X[i] = ctable.encode(sentence, maxlen=MAXLEN)
+        X[i] = ctable.encode_index(sentence, maxlen=MAXLEN)
+        #X[i] = ctable.encode(sentence, maxlen=MAXLEN)
     for i, sentence in enumerate(expected):
-        y[i] = ctable.encode(sentence, maxlen=DIGITS + 1)
+        y[i] = ctable.encode_index(sentence, maxlen=DIGITS + 1)
+        #y[i] = ctable.encode(sentence, maxlen=DIGITS + 1)
 
     # Shuffle (X, y) in unison as the later parts of X will almost all be larger digits
     indices = np.arange(len(y))
