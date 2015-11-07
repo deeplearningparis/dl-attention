@@ -33,7 +33,8 @@ def generate(pre_softmax, inputs, targets, data, max_generation_length, batch_si
         probability_array = np.vstack([probability_array, probabilities])
 
         # Sample a character out of the probability distribution
-        sampled_character = np.argmax(probabilities, axis=2)
+        # TODO change argmax to a sample
+        sampled_character = sample(probabilities, axis=2)
 
         # Concatenate the new value to the text
         generated_text = np.vstack([generated_text, sampled_character])
@@ -47,3 +48,8 @@ def softmax(w):
     dist = e / np.sum(e, axis=1)
     return dist
 
+
+# sample
+def sample(probabilities):
+    bins = np.add.accumulate(probabilities[0])
+    return np.digitize(np.random.random_sample(1), bins)
