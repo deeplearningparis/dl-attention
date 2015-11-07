@@ -1,4 +1,6 @@
 import theano
+import sys
+from generate_data import generate_train_data, CharacterTable
 import pdb
 import numpy
 import numpy as np
@@ -15,12 +17,12 @@ class model(object):
         nc :: number of classes
         ne :: number of word embeddings in the vocabulary
         de :: dimension of the word embeddings
-        cs :: word window context size 
         '''
-        self.de = de
+        self.nh = nh
+        self.ne = ne
         # parameters of the model
         self.emb = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
-                   (ne+1, de)).astype(theano.config.floatX)) # add one for PADDING at the end
+                   (ne, de)).astype(theano.config.floatX))
         self.Wx_enc  = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
                    (de, nh)).astype(theano.config.floatX))
         self.Wx_dec  = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
@@ -74,12 +76,12 @@ class model(object):
 
         # cost and gradients and learning rate
         lr = T.scalar('lr')
-        nll = -T.mean(T.log(probas)[y])
+        nll = -T.mean(T.log(probas)[T.arange(y.shape[0]), y])
         gradients = T.grad(nll, self.params)
         updates = OrderedDict((p, p - lr * g) for p, g in zip(self.params, gradients))
         
         # theano functions
-        self.train = theano.function([idxs_enc, idxs_dec, y, lr], nll, updates = updates)
+        self.train = theano.function([idxs_enc, idxs_dec, y, lr], nll, updates=updates)
 
         #####################
         # Generation part
@@ -97,19 +99,20 @@ class model(object):
 
     def generate_text(self, data_idxs_enc, batch_size, max_generation_length):
         # Initialize h_tm1
-        h_tm1 = np.zeros((batch_size, self.de))
+        h_tm1 = np.zeros((batch_size, self.nh))
 
         # Compute h_enc (Batch X Features)
         h_enc = self.compute_h_enc(data_idxs_enc)
 
         # Initialize the x_dec to <bos> character
+        # TODO multiply by the good value
         idxs_dec = np.ones((batch_size)) * 
 
         # The text that has been generated (Time X Batch)
         generated_text = np.zeros((0, batch_size))
 
         # The probability array (Time X Batch X de)
-        probability_array = np.zeros((0, batch_size, de))
+        probability_array = np.zeros((0, batch_size, self.ne + 1))
 
         for i in range(max_generation_length):
             h_tm1, s_t = self.generate_step([h_tm1, h_enc, y_tm1])
@@ -131,33 +134,47 @@ def sample(probabilities):
     bins = np.add.accumulate(probabilities[0])
     return np.digitize(np.random.random_sample(1), bins)
 
+def preprocess(x, y):
+    x, y = filter(lambda z: z != 0, x), filter(lambda z: z != 0, y)
+    sentence_enc = np.array(x).astype('int32')
+    sentence_dec = np.array([0] + y[:-1]).astype('int32') - 1 # trick with 1-based indexing
+    target = np.array(y[0] + [-1]).astype('int32') - 1 # same
+    return sentence_enc, sentence_dec, target
 
-if __name__ == "__main__":
+def main(nsamples=100,
+         dim_embedding=15,
+         n_hidden=128,
+         lr=0.1,
+         nepochs=10):
 
-    dim_embedding = 3
-    n_classes = 15
-    voc_size = 20
-    n_hidden = 10
+    INVERT = False
+    DIGITS = 3
+    MAXLEN = DIGITS + 1 + DIGITS
+    chars = '0123456789+ '
+    n_classes = len('0123456789') + 1 # add <eos>
+    voc_size = len('0123456789+') + 1 # add <bos> for the decoder 
 
+    # generate the dataset
+    ctable = CharacterTable(chars, MAXLEN)
+    X_train, X_val, y_train, y_val = generate_train_data(nsamples) 
+
+    # build the model
     m = model(nh=n_hidden,
-              nc= n_classes + 1, # <eos> token
-              ne=voc_size + 1, # <bos> token
+              nc=n_classes, 
+              ne=voc_size, 
               de=dim_embedding)
 
-    # train
-    # input :: [1, 2, 3, 4, 5]
-    # output :: [-1, 6, 7, 8]
-    # target :: [6, 7, 8, -1]
-    lr = 0.1
-
-    sentence_enc = np.array(range(6)).astype('int32')
-    sentence_dec = np.array([-1] + range(3)).astype('int32')
-    target = np.array(range(3) + [-1]).astype('int32')
- 
-    m.train(sentence_enc, sentence_dec, target, lr)
- 
-    #TODO add stochasticity
-    m.classify(sentence_enc, sentence_dec)
+    # training
+    for epoch in range(nepochs):
+        for i, (x, y) in enumerate(zip(X_train, y_train)):
+            sentence_enc, sentence_dec, target = preprocess(x, y)
+            m.train(sentence_enc, sentence_dec, target, lr)
+            print "%.2f %% completed\r" % ((i + 1) * 100. / nsamples), 
+            sys.stdout.flush()
+        print
 
     m.generate_text(data_idxs_enc, batch_size, max_generation_length)
    
+
+if __name__ == "__main__":
+    main()
