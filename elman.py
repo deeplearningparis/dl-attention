@@ -113,7 +113,7 @@ def main(nsamples=100,
         for i, (x, y) in enumerate(zip(X_train, y_train)):
             sentence_enc, sentence_dec, target = preprocess(x, y)
             m.train(sentence_enc, sentence_dec, target, lr)
-            print "%.2f %% completed\r" % ((i + 1) * 100. / nsamples), 
+            print "%.2f %% completed\r" % ((i + 1) * 100. / len(X_train)), 
             sys.stdout.flush()
         print
 
