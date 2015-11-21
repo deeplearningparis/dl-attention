@@ -9,6 +9,7 @@ from six.moves import range
 INVERT = False
 DIGITS = 3
 MAXLEN = DIGITS + 1 + DIGITS
+np.random.seed(42)
 
 # Not needed (we will use indexes)
 class CharacterTable(object):
