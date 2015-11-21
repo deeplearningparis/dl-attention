@@ -9,8 +9,11 @@ from six.moves import range
 INVERT = False
 DIGITS = 3
 MAXLEN = DIGITS + 1 + DIGITS
+np.random.seed(42)
 
 # Not needed (we will use indexes)
+
+
 class CharacterTable(object):
     """
     Given a set of characters:
@@ -27,7 +30,7 @@ class CharacterTable(object):
     def encode_index(self, C, maxlen=None):
         maxlen = maxlen if maxlen else self.maxlen
         X = np.zeros((maxlen), dtype='int32')
-        for i,c in enumerate(C):
+        for i, c in enumerate(C):
             X[i] = self.char_indices[c]
         return X
 
@@ -49,13 +52,15 @@ class CharacterTable(object):
 chars = '0123456789+ '
 ctable = CharacterTable(chars, MAXLEN)
 
+
 def generate_train_data(training_size=5000):
     questions = []
     expected = []
     seen = set()
     print('Generating data...')
     while len(questions) < training_size:
-        f = lambda: int(''.join(np.random.choice(list('0123456789')) for i in range(np.random.randint(1, DIGITS + 1))))
+        f = lambda: int(''.join(np.random.choice(list('0123456789'))
+                        for i in range(np.random.randint(1, DIGITS + 1))))
         a, b = f(), f()
         # Skip any addition questions we've already seen
         # Also skip any such that X+Y == Y+X (hence the sorting)
@@ -73,26 +78,27 @@ def generate_train_data(training_size=5000):
             query = query[::-1]
         questions.append(query)
         expected.append(ans)
-        #print('Total addition questions:', len(questions))
+        #  print('Total addition questions:', len(questions))
 
     print('Vectorization...')
     X = np.zeros((len(questions), MAXLEN), dtype='int32')
     y = np.zeros((len(questions), DIGITS + 1), dtype='int32')
     for i, sentence in enumerate(questions):
         X[i] = ctable.encode_index(sentence, maxlen=MAXLEN)
-        #X[i] = ctable.encode(sentence, maxlen=MAXLEN)
+        #  X[i] = ctable.encode(sentence, maxlen=MAXLEN)
     for i, sentence in enumerate(expected):
         y[i] = ctable.encode_index(sentence, maxlen=DIGITS + 1)
-        #y[i] = ctable.encode(sentence, maxlen=DIGITS + 1)
+        #  y[i] = ctable.encode(sentence, maxlen=DIGITS + 1)
 
-    # Shuffle (X, y) in unison as the later parts of X will almost all be larger digits
+    # Shuffle (X, y) in unison as the later parts of X
+    # will almost all be larger digits
     indices = np.arange(len(y))
     np.random.shuffle(indices)
     X = X[indices]
     y = y[indices]
     # Explicitly set apart 10% for validation data that we never train over
     split_at = len(X) - len(X) / 10
-    (X_train, X_val) = (X[0:split_at,], X[split_at:,])
+    (X_train, X_val) = (X[0:split_at, ], X[split_at:, ])
     (y_train, y_val) = (y[:split_at], y[split_at:])
 
     print("X_train shape:" + str(X_train.shape))
