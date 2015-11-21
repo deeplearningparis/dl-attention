@@ -111,11 +111,12 @@ def preprocess(x, y):
     target = np.array(y[1:] + [0]).astype('int32') - 1 # same
     return sentence_enc, sentence_dec, target
 
-def main(nsamples=100,
+def main(nsamples=10000,
          dim_embedding=15,
          n_hidden=128,
          lr=0.01,
-         nepochs=100):
+         nepochs=100,
+         val_freq=1):
 
     INVERT = False
     DIGITS = 3
@@ -136,16 +137,17 @@ def main(nsamples=100,
 
     # training
     for epoch in range(nepochs):
+        nlls = []
         for i, (x, y) in enumerate(zip(X_train, y_train)):
             sentence_enc, sentence_dec, target = preprocess(x, y)
-            m.train(sentence_enc, sentence_dec, target, lr)
-            print "%.2f %% completed\r" % ((i + 1) * 100. / len(X_train)), 
+            nlls += [m.train(sentence_enc, sentence_dec, target, lr)]
+            print "%.2f %% completedi - nll = %.2f\r" % ((i + 1) * 100. / len(X_train), np.mean(nlls)), 
             sys.stdout.flush()
         print
 
         # evaluation
-        if (epoch + 1) % 10 == 0: 
-            for x, y in zip(X_val, y_val):
+        if (epoch + 1) % val_freq == 0: 
+            for i, (x, y) in enumerate(zip(X_val, y_val)):
                 sentence_enc, sentence_dec, target = preprocess(x, y)
                 y_pred = m.generate_text(sentence_enc)
                 try:
@@ -153,8 +155,8 @@ def main(nsamples=100,
                     print "predicted   \t", y_pred
                 except IndexError:
                     pass
-
-   
+                if i > 5:
+                    break
 
 if __name__ == "__main__":
     main()
