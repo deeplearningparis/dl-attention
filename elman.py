@@ -18,6 +18,8 @@ class model(object):
         ne :: number of word embeddings in the vocabulary
         de :: dimension of the word embeddings
         '''
+        self.nh = nh
+        self.ne = ne
         # parameters of the model
         self.emb = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
                    (ne, de)).astype(theano.config.floatX))
@@ -54,8 +56,11 @@ class model(object):
             sequences=x_enc, outputs_info=[self.h0_enc, None])
         h_enc = h[-1, :]
         
+        # Function to comupte h_enc (usefull for the generating function)
+        self.compute_h_enc = theano.function([idxs_enc],h_enc)
+
         # from the encoder representation, generate the sequence 
-        
+
         def recurrence(x_t, h_tm1):
             h_t = T.nnet.sigmoid(T.dot(x_t, self.Wx_dec) + T.dot(h_tm1, self.Wh_dec) + h_enc)
             s_t = T.nnet.softmax(T.dot(h_t, self.W) + self.b)
@@ -77,6 +82,57 @@ class model(object):
         
         # theano functions
         self.train = theano.function([idxs_enc, idxs_dec, y, lr], nll, updates=updates)
+
+        #####################
+        # Generation part
+        #####################
+        h_tm1 = T.fmatrix()
+        h_enc = T.fmatrix()
+        idxs_dec = T.ivector() 
+
+        h_t = T.nnet.sigmoid(T.dot(self.emb[idxs_dec], self.Wx_dec) + T.dot(h_tm1, self.Wh_dec) + h_enc)
+        s_t = T.nnet.softmax(T.dot(h_t, self.W) + self.b)
+
+        self.generate_step = theano.function(
+            inputs=[h_tm1, h_enc, idxs_dec], outputs=[h_t, s_t])
+
+
+    def generate_text(self, data_idxs_enc, batch_size, max_generation_length):
+        # Initialize h_tm1
+        h_tm1 = np.zeros((batch_size, self.nh))
+
+        # Compute h_enc (Batch X Features)
+        h_enc = self.compute_h_enc(data_idxs_enc)
+
+        # Initialize the x_dec to <bos> character
+        # TODO multiply by the good value
+        idxs_dec = np.ones((batch_size)) * 
+
+        # The text that has been generated (Time X Batch)
+        generated_text = np.zeros((0, batch_size))
+
+        # The probability array (Time X Batch X de)
+        probability_array = np.zeros((0, batch_size, self.ne + 1))
+
+        for i in range(max_generation_length):
+            h_tm1, s_t = self.generate_step([h_tm1, h_enc, y_tm1])
+
+            # Add it in the probabily array
+            probability_array = np.vstack([probability_array, s_t])
+
+            # Sample a character out of the probability distribution
+            y_tm1 = sample(s_t, axis=1)
+
+            # Concatenate the new value to the text
+            generated_text = np.vstack([generated_text, y_tm1])
+
+        return generated_text
+
+
+# sample
+def sample(probabilities):
+    bins = np.add.accumulate(probabilities[0])
+    return np.digitize(np.random.random_sample(1), bins)
 
 def preprocess(x, y):
     x, y = filter(lambda z: z != 0, x), filter(lambda z: z != 0, y)
@@ -116,6 +172,9 @@ def main(nsamples=100,
             print "%.2f %% completed\r" % ((i + 1) * 100. / len(X_train)), 
             sys.stdout.flush()
         print
+
+    m.generate_text(data_idxs_enc, batch_size, max_generation_length)
+   
 
 if __name__ == "__main__":
     main()
