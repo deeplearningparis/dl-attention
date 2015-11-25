@@ -10,49 +10,55 @@ from theano import tensor as T
 from collections import OrderedDict
 
 class model(object):
-    def __init__(self, nh, nc, ne, de):
+    def __init__(self, nh, nc, ne, natt, attention_type='no_attention'):
         '''
         nh :: dimension of the hidden layer
         nc :: number of classes
         ne :: number of word embeddings in the vocabulary
-        de :: dimension of the word embeddings
+        natt :: dimension of hidden attention layer
         '''
         self.nh = nh
         self.ne = ne
         # parameters of the model
-        self.emb = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
-                   (ne, de)).astype(theano.config.floatX))
         self.Wx_enc  = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
-                   (de, nh)).astype(theano.config.floatX))
+                   (ne, nh)).astype(theano.config.floatX))
         self.Wx_dec  = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
-                   (de, nh)).astype(theano.config.floatX))
-        self.Wh_enc  = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
-                   (nh, nh)).astype(theano.config.floatX))
-        self.Wh_dec  = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
-                   (nh, nh)).astype(theano.config.floatX))
-        
+                   (ne, nh)).astype(theano.config.floatX))
+
         self.h0_enc  = theano.shared(numpy.zeros(nh, dtype=theano.config.floatX))
         self.h0_dec  = theano.shared(numpy.zeros(nh, dtype=theano.config.floatX))
 
-        self.W   = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
-                   (nh, nc)).astype(theano.config.floatX))
+        self.Wh_enc   = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
+                                                                 (nh, nh)).astype(theano.config.floatX))
+        self.Wh_dec   = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
+                                                                 (nh, nh)).astype(theano.config.floatX))
         self.b   = theano.shared(numpy.zeros(nc, dtype=theano.config.floatX))
-
+        self.W   = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
+                                                                 (nh, nc)).astype(theano.config.floatX))
         # bundle
-        self.params = [self.emb, self.Wx_enc, self.Wx_dec, self.Wh_enc, self.Wh_dec, self.W, self.b, self.h0_enc, self.h0_dec]
+        self.params = [self.Wx_enc, self.Wx_dec, self.Wh_enc, self.Wh_dec, self.W, self.b, self.h0_enc, self.h0_dec]
+
+        if attention_type == 'dnn':
+            self.natt = natt
+            self.W_att_enc  = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
+                    (nh, natt)).astype(theano.config.floatX))
+            self.W_att_dec  = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
+                    (nh, natt)).astype(theano.config.floatX))
+            self.W_att_out  = theano.shared(0.2 * numpy.random.uniform(-1.0, 1.0,\
+                   (natth)).astype(theano.config.floatX))
+            self.params += [self.W_att_enc, self.W_att_dec, self.W_att_out]
 
         idxs_enc, idxs_dec = T.ivector(), T.ivector() 
         y = T.ivector()
-        x_enc, x_dec = self.emb[idxs_enc], self.emb[idxs_dec]
+        x_enc, x_dec = self.Wx_enc[idxs_enc], self.Wx_dec[idxs_dec]
         
         # compute the encoder representation
         def recurrence(x_t, h_tm1):
-            h_t = T.nnet.sigmoid(T.dot(x_t, self.Wx_enc) + T.dot(h_tm1, self.Wh_enc))
-            s_t = T.nnet.softmax(T.dot(h_t, self.W) + self.b)
-            return [h_t, s_t]
+            h_t = T.nnet.sigmoid(x_t + T.dot(h_tm1, self.Wh_enc))
+            return [h_t, h_t]
         
         [h, s], _ = theano.scan(fn=recurrence, \
-            sequences=x_enc, outputs_info=[self.h0_enc, None])        
+            sequences=x_enc, outputs_info=[self.h0_enc, None])
         h_enc_last = h[-1, :]
 
         # No attention : return the last element of h_enc
@@ -64,16 +70,22 @@ class model(object):
             attention_vector = T.nnet.softmax(T.dot(h_enc, h_tm1))
             return (attention_vector.T * h_enc).sum(axis=0) 
 
-        # TODO Attention computed with a DNN
-        def attention_function_DNN(h_enc, h_tm1):
-            attention_vector = T.nnet.softmax(T.dot(h_enc, h_tm1))
+        # TODO Attention computed with an NN (1 hidden layer for states mixing)
+        def attention_function_dnn(h_enc, h_tm1):
+            attn_hid = T.tanh(T.dot(h_enc, self.W_att_enc) + T.dot(h_tm1, self.W_att_dec))            
+            attention_vector = T.nnet.softmax(T.dot(attn_hid, self.W_att_out.T))
             return (attention_vector.T * h_enc).sum(axis=0) 
 
-        attention = attention_function_dot
+        if attention_type == 'dnn':
+            attention = attention_function_dnn
+        elif attention_type == 'dot':
+            attention = attention_function_dot
+        else:
+            attention = no_attention
 
         # from the encoder representation, generate the sequence 
         def recurrence(x_t, h_tm1):
-            h_t = T.nnet.sigmoid(T.dot(x_t, self.Wx_dec) + T.dot(h_tm1, self.Wh_dec) + attention(h, h_tm1))
+            h_t = T.nnet.sigmoid(x_t + T.dot(h_tm1, self.Wh_dec) + attention(h, h_tm1))
             s_t = T.nnet.softmax(T.dot(h_t, self.W) + self.b)
             return [h_t, s_t]
 
@@ -98,7 +110,7 @@ class model(object):
         h_tm1 = T.vector()
         idxs_dec = T.iscalar() 
 
-        h_t = T.nnet.sigmoid(T.dot(self.emb[idxs_dec], self.Wx_dec) + T.dot(h_tm1, self.Wh_dec) + attention(h, h_tm1))
+        h_t = T.nnet.sigmoid(self.Wx_dec[idxs_dec] + T.dot(h_tm1, self.Wh_dec) + attention(h, h_tm1))
         s_t = T.nnet.softmax(T.dot(h_t, self.W) + self.b)
 
         self.compute_h_enc = theano.function([idxs_enc], h)
@@ -127,11 +139,11 @@ def preprocess(x, y):
     target = np.array(y[1:] + [0]).astype('int32') - 1 # same
     return sentence_enc, sentence_dec, target
 
-def main(nsamples=100,
-         dim_embedding=15,
+def main(nsamples=10000,
          n_hidden=128,
          lr=0.01,
-         nepochs=100):
+         nepochs=100,
+         val_freq=1):
 
     INVERT = False
     DIGITS = 3
@@ -148,20 +160,21 @@ def main(nsamples=100,
     m = model(nh=n_hidden,
               nc=n_classes, 
               ne=voc_size, 
-              de=dim_embedding)
+              natt=20)
 
     # training
     for epoch in range(nepochs):
+        nlls = []
         for i, (x, y) in enumerate(zip(X_train, y_train)):
             sentence_enc, sentence_dec, target = preprocess(x, y)
-            m.train(sentence_enc, sentence_dec, target, lr)
-            print "%.2f %% completed\r" % ((i + 1) * 100. / len(X_train)), 
+            nlls += [m.train(sentence_enc, sentence_dec, target, lr)]
+            print "%.2f %% completedi - nll = %.2f\r" % ((i + 1) * 100. / len(X_train), np.mean(nlls)), 
             sys.stdout.flush()
         print
 
         # evaluation
-        if (epoch + 1) % 10 == 0: 
-            for x, y in zip(X_val, y_val):
+        if (epoch + 1) % val_freq == 0: 
+            for i, (x, y) in enumerate(zip(X_val, y_val)):
                 sentence_enc, sentence_dec, target = preprocess(x, y)
                 y_pred = m.generate_text(sentence_enc)
                 try:
@@ -169,8 +182,8 @@ def main(nsamples=100,
                     print "predicted   \t", y_pred
                 except IndexError:
                     pass
-
-   
+                if i > 5:
+                    break
 
 if __name__ == "__main__":
     main()
