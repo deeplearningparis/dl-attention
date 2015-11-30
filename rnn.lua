@@ -5,10 +5,10 @@ Train an LSTM to make additions.
 Options:
    --nEpochs        (default 30)     nb of epochs
    --batchSize      (default 1)      batch size
-   --charDim        (default 30)     char vector dimensionality
-   --hiddens        (default 30)     nb of hidden units
-   --learningRate   (default 1)      learning rate
-   --maxGradNorm    (default 1)      cap gradient norm
+   --charDim        (default 32)     char vector dimensionality
+   --hiddens        (default 32)     nb of hidden units
+   --learningRate   (default 0.1)    learning rate
+   --maxGradNorm    (default 10)     cap gradient norm
    --paramRange     (default .1)     initial parameter range
    --trainSplit     (default .9)     training set / validation set ratio
 ]]
@@ -48,13 +48,17 @@ local lsm = d.nn.LogSoftMax()
 local lossf = d.nn.ClassNLLCriterion()
 
 -- Complete trainable function:
-local f = function(params, x, yi, y)
+local f = function(params, x, y)
    -- Select word vectors
    x = util.lookup(params.words.W, x)
-   yi = util.lookup(params.words.W, yi)
    -- Encode all inputs through LSTM layers:
    local h1 = lstm1(params[1], x)
-   local h2 = lstm2(params[2], yi, h1)
+   -- Decode
+   local size = torch.totable(torch.size(h1))
+   table.insert(size, 2, 1)
+   local h1e = torch.view(h1, unpack(size))
+   size[2] = torch.size(y, 2)
+   local h2 = lstm2(params[2], torch.expand(h1e, unpack(size)))
    -- Flatten batch + temporal
    local nElements = torch.size(y, 1) * torch.size(y, 2)
    local h2f = torch.view(h2, nElements, opt.hiddens)
@@ -92,7 +96,7 @@ for i, param in ipairs(_.flatten(params)) do nparameters = nparameters + param:n
 print('vocabulary size: ' .. #dict.id2char)
 print('number of parameters in the model: ' .. nparameters)
 
-function trim(v)
+function trim(v, addSpace)
    -- only trim batch size 1
    if v:size(1) > 1 then return v end
    local nonBlank = {}
@@ -103,11 +107,7 @@ end
 function getBatch(s, t, i)
    local x = trim(s:narrow(1, (i-1) * opt.batchSize + 1, opt.batchSize)):contiguous()
    local y = trim(t:narrow(1, (i-1) * opt.batchSize + 1, opt.batchSize)):contiguous()
-   local yi = torch.Tensor(y:size()):fill(dict.char2id[' '])
-   if y:size(2) > 1 then 
-      yi:narrow(2, 2, y:size(2) - 1):copy(y:narrow(2, 1, y:size(2) - 1))
-   end
-   return x, yi, y
+   return x, y
 end
 
 -- Split in and train/val data sets
@@ -132,13 +132,13 @@ for epoch = 1,opt.nEpochs do
    for i = 1, trainBatchNum do
       xlua.progress(i, trainBatchNum)
       -- Next sequences:
-      local x, yi, y = getBatch(trainSources, trainTargets, i)
+      local x, y = getBatch(trainSources, trainTargets, i)
       -- Grads:
-      local grads,loss = df(params, x, yi, y)
+      local grads,loss = df(params, x, y)
       -- Cap gradient norms:
       local norm = 0
       for i, grad in ipairs(_.flatten(grads)) do
-         norm = norm + torch.sum(torch.pow(grad,2))
+         norm = norm + torch.sum(torch.pow(grad, 2))
       end
       norm = math.sqrt(norm)
       if norm > opt.maxGradNorm then
@@ -161,8 +161,8 @@ for epoch = 1,opt.nEpochs do
 
    local vloss = 0
    for i = 1, valBatchNum do
-      local x, yi, y = getBatch(valSources, valTargets, i)
-      local loss = f(params, x, yi, y)
+      local x, y = getBatch(valSources, valTargets, i)
+      local loss = f(params, x, y)
       vloss = vloss + loss
    end
 
